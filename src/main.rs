@@ -1,5 +1,10 @@
+use std::collections::HashMap;
 use std::env;
+use std::fs;
+use std::io::{self, BufRead};
 use std::process::ExitCode;
+
+mod parser;
 
 const DEFAULT_INPUT: &str = "stdin";
 const DEFAULT_OUTPUT: &str = "stdout";
@@ -8,9 +13,9 @@ fn usage() -> String {
     "Usage: mdt [OPTIONS]\n\
      \n\
      Options:\n\
-     \x20  -i <FILE>  Input file (default: stdin)\n\
-     \x20  -o <FILE>  Output file (default: stdout)\n\
-     \x20  -h         Show this help message".to_string()
+     -i <FILE>  Input file (default: stdin)\n\
+     -o <FILE>  Output file (default: stdout)\n\
+     -h         Show this help message".to_string()
 }
 
 struct Args {
@@ -57,8 +62,36 @@ fn main() -> ExitCode {
         }
     };
 
-    println!("input:  {}", args.input);
-    println!("output: {}", args.output);
+    // Read input from file or stdin
+    let table_str = match &args.input {
+        DEFAULT_INPUT => io::stdin()
+            .lock()
+            .lines()
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|e| format!("Failed to read stdin: {}", e)),
+        path => fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read file '{}': {}", path, e))?,
+    };
+
+    // Parse the markdown table
+    let result = parser::parse(&table_str);
+
+    match result {
+        Ok(table) => {
+            // Output the parsed table as markdown
+            if &args.output == DEFAULT_OUTPUT {
+                io::stdout()
+                    .write_all(format!("{}", table).as_bytes())
+                    .unwrap();
+            } else {
+                fs::write(&args.output, format!("{}", table))
+                    .expect("Failed to write output");
+            }
+        }
+        Err(err) => {
+            eprintln!("Error: {}", err);
+        }
+    }
 
     ExitCode::SUCCESS
 }
