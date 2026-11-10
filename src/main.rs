@@ -1,5 +1,9 @@
 use std::env;
+use std::fs;
+use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
+
+mod parser;
 
 const DEFAULT_INPUT: &str = "stdin";
 const DEFAULT_OUTPUT: &str = "stdout";
@@ -8,9 +12,9 @@ fn usage() -> String {
     "Usage: mdt [OPTIONS]\n\
      \n\
      Options:\n\
-     \x20  -i <FILE>  Input file (default: stdin)\n\
-     \x20  -o <FILE>  Output file (default: stdout)\n\
-     \x20  -h         Show this help message".to_string()
+     -i <FILE>  Input file (default: stdin)\n\
+     -o <FILE>  Output file (default: stdout)\n\
+     -h         Show this help message".to_string()
 }
 
 struct Args {
@@ -57,8 +61,36 @@ fn main() -> ExitCode {
         }
     };
 
-    println!("input:  {}", args.input);
-    println!("output: {}", args.output);
+    let table_str = match args.input.as_str() {
+        DEFAULT_INPUT => io::stdin()
+            .lock()
+            .lines()
+            .collect::<Result<Vec<String>, _>>()
+            .map(|lines| lines.join("\n"))
+            .map_err(|e| format!("Failed to read stdin: {}", e)),
+        path => fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read file '{}': {}", path, e)),
+    };
+
+    let result = match table_str {
+        Ok(table_str) => parser::parse(&table_str),
+        Err(err) => Err(err),
+    };
+
+    match result {
+        Ok(rows) => {
+            let output = format!("{:?}", rows);
+            if args.output == DEFAULT_OUTPUT {
+                io::stdout().write_all(output.as_bytes()).unwrap();
+            } else {
+                fs::write(&args.output, output).expect("Failed to write output");
+            }
+        }
+        Err(err) => {
+            eprintln!("Error: {err}");
+            return ExitCode::FAILURE;
+        }
+    }
 
     ExitCode::SUCCESS
 }

@@ -16,6 +16,8 @@ target
 # rustc will dump stack traces when hitting an internal compiler error to PWD
 rustc-ice-*.txt
 
+# Project-specific files
 .DS_Store
 *.exe
+tmp/
 
