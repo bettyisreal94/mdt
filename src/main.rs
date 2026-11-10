@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
 
 mod parser;
@@ -62,34 +61,34 @@ fn main() -> ExitCode {
         }
     };
 
-    // Read input from file or stdin
-    let table_str = match &args.input {
+    let table_str = match args.input.as_str() {
         DEFAULT_INPUT => io::stdin()
             .lock()
             .lines()
             .collect::<Result<Vec<String>, _>>()
+            .map(|lines| lines.join("\n"))
             .map_err(|e| format!("Failed to read stdin: {}", e)),
         path => fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read file '{}': {}", path, e))?,
+            .map_err(|e| format!("Failed to read file '{}': {}", path, e)),
     };
 
-    // Parse the markdown table
-    let result = parser::parse(&table_str);
+    let result = match table_str {
+        Ok(table_str) => parser::parse(&table_str),
+        Err(err) => Err(err),
+    };
 
     match result {
-        Ok(table) => {
-            // Output the parsed table as markdown
-            if &args.output == DEFAULT_OUTPUT {
-                io::stdout()
-                    .write_all(format!("{}", table).as_bytes())
-                    .unwrap();
+        Ok(rows) => {
+            let output = format!("{:?}", rows);
+            if args.output == DEFAULT_OUTPUT {
+                io::stdout().write_all(output.as_bytes()).unwrap();
             } else {
-                fs::write(&args.output, format!("{}", table))
-                    .expect("Failed to write output");
+                fs::write(&args.output, output).expect("Failed to write output");
             }
         }
         Err(err) => {
-            eprintln!("Error: {}", err);
+            eprintln!("Error: {err}");
+            return ExitCode::FAILURE;
         }
     }
 
