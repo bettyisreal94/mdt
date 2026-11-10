@@ -71,6 +71,33 @@ fn parse_cells(line: &str) -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// Extract the extension definitions from a table string.
+///
+/// Each extension line starts with `:`, followed by the new column name,
+/// an equals sign `=`, and finally the code for that column. Returns a
+/// list of `(name, code)` string pairs. Returns an `Err` if an extension
+/// line is missing the equals sign.
+pub fn extract_extensions(table_str: &str) -> Result<Vec<(String, String)>, String> {
+    let mut extensions: Vec<(String, String)> = Vec::new();
+
+    for line in table_str.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with(':') {
+            continue;
+        }
+
+        let clean = trimmed[1..].trim();
+        let (name, code) = clean
+            .split_once('=')
+            .map(|(name, code)| (name.trim().to_string(), code.trim().to_string()))
+            .ok_or_else(|| "Extension line must contain '='".to_string())?;
+
+        extensions.push((name, code));
+    }
+
+    Ok(extensions)
+}
+
 fn is_separator(line: &str) -> bool {
     let trimmed = line.trim().trim_start_matches('|').trim_end_matches('|').trim();
     if trimmed.is_empty() {
@@ -124,6 +151,41 @@ mod tests {
 
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].get("name").unwrap(), "Mira");
+    }
+
+
+    #[test]
+    fn test_extract_multiple_extensions() {
+        let table_str = r#"| name | age |
+|------|-----|
+| A    | 1   |
+: first = r["name"]
+: double = r["age"] * 2
+: upper  = r["name"].upper()"#;
+
+        let extensions = extract_extensions(table_str)
+            .expect("Failed to extract extensions")
+            .into_iter()
+            .collect::<Vec<_>>();
+
+        assert_eq!(extensions.len(), 3);
+        assert_eq!(extensions[0].0, "first");
+        assert_eq!(extensions[0].1, "r[\"name\"]");
+        assert_eq!(extensions[1].0, "double");
+        assert_eq!(extensions[2].0, "upper");
+        assert_eq!(extensions[2].1, "r[\"name\"].upper()");
+    }
+
+    #[test]
+    fn test_extract_extensions_no_equals_fails() {
+        let table_str = ": broken line without equals";
+        let result = extract_extensions(table_str).expect_err("Should fail without '='");
+        assert!(result.contains("='"));
+    }
+
+    #[test]
+    fn test_extract_empty_string() {
+        assert!(extract_extensions("").unwrap().is_empty());
     }
 
     #[test]
