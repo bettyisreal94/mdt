@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+use boa_engine::Context;
+use crate::js::{str_to_fn, JsRule};
+
 /// Parse an extended markdown table string into a list of row maps.
 ///
 /// Each returned map maps a column name (from the header row) to the cell
@@ -75,10 +78,12 @@ fn parse_cells(line: &str) -> Result<Vec<String>, String> {
 ///
 /// Each extension line starts with `:`, followed by the new column name,
 /// an equals sign `=`, and finally the code for that column. Returns a
-/// list of `(name, code)` string pairs. Returns an `Err` if an extension
-/// line is missing the equals sign.
-pub fn extract_extensions(table_str: &str) -> Result<Vec<(String, String)>, String> {
-    let mut extensions: Vec<(String, String)> = Vec::new();
+/// list of `(name, rule)` pairs, where `rule` is the parsed JavaScript
+/// function produced from the extension code. Returns an `Err` if an
+/// extension line is missing the equals sign, or if any extension code
+/// cannot be compiled into a callable rule.
+pub fn extract_extensions(table_str: &str) -> Result<Vec<(String, JsRule)>, String> {
+    let mut extensions: Vec<(String, JsRule)> = Vec::new();
 
     for line in table_str.lines() {
         let trimmed = line.trim();
@@ -92,7 +97,9 @@ pub fn extract_extensions(table_str: &str) -> Result<Vec<(String, String)>, Stri
             .map(|(name, code)| (name.trim().to_string(), code.trim().to_string()))
             .ok_or_else(|| "Extension line must contain '='".to_string())?;
 
-        extensions.push((name, code));
+        let rule = str_to_fn(&code)?;
+
+        extensions.push((name, rule));
     }
 
     Ok(extensions)
@@ -221,17 +228,48 @@ mod tests {
 
         assert_eq!(extensions.len(), 3);
         assert_eq!(extensions[0].0, "first");
-        assert_eq!(extensions[0].1, "r[\"name\"]");
+        assert_eq!(extensions[0].1.source(), "r[\"name\"]");
         assert_eq!(extensions[1].0, "double");
         assert_eq!(extensions[2].0, "upper");
-        assert_eq!(extensions[2].1, "r[\"name\"].upper()");
+        assert_eq!(extensions[2].1.source(), "r[\"name\"].upper()");
+
+        // The extracted rules must be valid, callable JavaScript functions.
+        for (_, rule) in &extensions {
+            let rule = str_to_fn(rule.source()).expect("rule should be a valid function");
+            let mut context = Context::default();
+            let table: Vec<HashMap<String, String>> = vec![
+                {
+                    let mut row = HashMap::new();
+                    row.insert("name".to_string(), "A".to_string());
+                    row.insert("age".to_string(), "1".to_string());
+                    row
+                },
+            ];
+            rule.apply(&mut context, &table, &table[0], 0)
+                .expect("rule should apply successfully");
+        }
     }
 
     #[test]
     fn test_extract_extensions_no_equals_fails() {
         let table_str = ": broken line without equals";
-        let result = extract_extensions(table_str).expect_err("Should fail without '='");
-        assert!(result.contains("='"));
+        let result = extract_extensions(table_str);
+        assert!(result.is_err(), "should fail without '='");
+        match result {
+            Err(err) => assert!(err.contains("='"), "got: {err}"),
+            Ok(_) => panic!("expected an error"),
+        }
+    }
+
+    #[test]
+    fn test_extract_extensions_invalid_code_fails() {
+        let table_str = ": good = r[\"name\"]\n: bad = this is not (valid javascript";
+        let result = extract_extensions(table_str);
+        assert!(result.is_err(), "should fail on invalid code");
+        match result {
+            Err(err) => assert!(err.contains("Failed to parse function"), "got: {err}"),
+            Ok(_) => panic!("expected an error"),
+        }
     }
 
     #[test]
