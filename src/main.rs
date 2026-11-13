@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
 
+mod js;
 mod parser;
 
 const DEFAULT_INPUT: &str = "stdin";
