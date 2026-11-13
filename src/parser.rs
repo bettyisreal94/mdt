@@ -116,6 +116,57 @@ fn is_separator(line: &str) -> bool {
     cells.next().is_none()
 }
 
+/// Return the sorted, de-duplicated set of column names present across all
+/// rows. This gives a deterministic column order regardless of the (unordered)
+/// `HashMap` iteration order.
+fn column_names(rows: &[HashMap<String, String>]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for row in rows {
+        for key in row.keys() {
+            if names.iter().all(|n| n != key) {
+                names.push(key.clone());
+            }
+        }
+    }
+    names.sort();
+    names
+}
+
+/// Render a list of row maps as an extended markdown table string.
+///
+/// This is the inverse of [`parse`]: given the parsed rows (each mapping a
+/// column name to its cell value) it regenerates the markdown table. Column
+/// names are taken from the union of all row keys and sorted to produce
+/// deterministic output.
+///
+/// The returned string is the header row, a `---` separator row and one row per
+/// input map, each terminated by a newline.
+pub fn dump(rows: &[HashMap<String, String>]) -> String {
+    let names = column_names(rows);
+
+    let mut out = String::new();
+
+    // Header row: `| name | age | job |`
+    if !names.is_empty() {
+        let header_cells: Vec<&str> = names.iter().map(String::as_str).collect();
+        out.push_str(&format!("| {} |\n", header_cells.join(" | ")));
+
+        // Separator row: `|---|---|---|`
+        let sep_cells: Vec<&str> = std::iter::repeat("---").take(names.len()).collect();
+        out.push_str(&format!("|{}|\n", sep_cells.join("|")));
+    }
+
+    // Data rows
+    for row in rows {
+        let cells: Vec<String> = names.iter().map(|name| {
+            row.get(name).map(String::as_str).unwrap_or("").to_string()
+        }).collect();
+        out.push_str(&format!("| {} |\n", cells.join(" | ")));
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +246,72 @@ mod tests {
 
         let result = parse(table_str).expect_err("Should fail without a separator row");
         assert!(result.contains("Missing separator row"));
+    }
+
+    #[test]
+    fn test_dump_basic_table() {
+        let mut rows = HashMap::new();
+        rows.insert("name".to_string(), "Mira".to_string());
+        rows.insert("age".to_string(), "27".to_string());
+        rows.insert("job".to_string(), "Superhero".to_string());
+
+        let mut rows2 = HashMap::new();
+        rows2.insert("name".to_string(), "Pietro".to_string());
+        rows2.insert("age".to_string(), "24".to_string());
+        rows2.insert("job".to_string(), "Clown".to_string());
+
+        let mut rows3 = HashMap::new();
+        rows3.insert("name".to_string(), "Flora".to_string());
+        rows3.insert("age".to_string(), "18".to_string());
+        rows3.insert("job".to_string(), "Singer".to_string());
+
+        let expected = "| age | job | name |\n|---|---|---|\n| 27 | Superhero | Mira |\n| 24 | Clown | Pietro |\n| 18 | Singer | Flora |\n";
+
+        assert_eq!(dump(&[rows, rows2, rows3]), expected);
+    }
+
+    #[test]
+    fn test_dump_matches_parse_roundtrip() {
+        let table_str = r#"| name   | age | job       |
+|--------|-----|-----------|
+| Mira   | 27  | Superhero |
+| Pietro | 24  | Clown     |
+| Flora  | 18  | Singer    |"#;
+
+        let rows = parse(table_str).expect("Failed to parse table");
+        let dumped = dump(&rows);
+
+        // The regenerated table should parse back to the same rows.
+        let reparsed = parse(&dumped).expect("Dumped table should re-parse");
+        assert_eq!(rows, reparsed);
+    }
+
+    #[test]
+    fn test_dump_empty_rows() {
+        let rows: Vec<HashMap<String, String>> = Vec::new();
+        assert_eq!(dump(&rows), String::new());
+    }
+
+    #[test]
+    fn test_dump_missing_cell_renders_empty() {
+        let mut row = HashMap::new();
+        row.insert("name".to_string(), "Mira".to_string());
+        row.insert("age".to_string(), "27".to_string());
+
+        let mut other = HashMap::new();
+        other.insert("job".to_string(), "Singer".to_string());
+
+        let expected = "| age | job | name |\n|---|---|---|\n| 27 |  | Mira |\n|  | Singer |  |\n";
+        assert_eq!(dump(&[row, other]), expected);
+    }
+
+    #[test]
+    fn test_dump_columns_are_sorted() {
+        let mut row = HashMap::new();
+        row.insert("zebra".to_string(), "1".to_string());
+        row.insert("alpha".to_string(), "2".to_string());
+
+        let expected = "| alpha | zebra |\n|---|---|\n| 2 | 1 |\n";
+        assert_eq!(dump(&[row]), expected);
     }
 }

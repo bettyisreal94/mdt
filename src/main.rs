@@ -72,14 +72,16 @@ fn main() -> ExitCode {
             .map_err(|e| format!("Failed to read file '{}': {}", path, e)),
     };
 
-    let result = match table_str {
-        Ok(table_str) => parser::parse(&table_str),
+    let output = match table_str {
+        Ok(table_str) => match crate::parser::parse(&table_str) {
+            Ok(rows) => Ok(crate::parser::dump(&rows)),
+            Err(err) => Err(err),
+        },
         Err(err) => Err(err),
     };
 
-    match result {
-        Ok(rows) => {
-            let output = format!("{:?}", rows);
+    match output {
+        Ok(output) => {
             if args.output == DEFAULT_OUTPUT {
                 io::stdout().write_all(output.as_bytes()).unwrap();
             } else {
