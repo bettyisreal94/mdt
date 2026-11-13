@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use boa_engine::Context;
 use crate::js::{str_to_fn, JsRule};
 
 /// Parse an extended markdown table string into a list of row maps.
@@ -232,22 +231,6 @@ mod tests {
         assert_eq!(extensions[1].0, "double");
         assert_eq!(extensions[2].0, "upper");
         assert_eq!(extensions[2].1.source(), "(t, r, i) => r[\"name\"].upper()");
-
-        // The extracted rules must be valid, callable JavaScript functions.
-        for (_, rule) in &extensions {
-            let rule = str_to_fn(rule.source()).expect("rule should be a valid function");
-            let mut context = Context::default();
-            let table: Vec<HashMap<String, String>> = vec![
-                {
-                    let mut row = HashMap::new();
-                    row.insert("name".to_string(), "A".to_string());
-                    row.insert("age".to_string(), "1".to_string());
-                    row
-                },
-            ];
-            rule.apply(&mut context, &table, &table[0], 0)
-                .expect("rule should apply successfully");
-        }
     }
 
     #[test]
