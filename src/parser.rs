@@ -217,9 +217,9 @@ mod tests {
         let table_str = r#"| name | age |
 |------|-----|
 | A    | 1   |
-: first = r["name"]
-: double = r["age"] * 2
-: upper  = r["name"].upper()"#;
+: first = (t, r, i) => r["name"]
+: double = (t, r, i) => r["age"] * 2
+: upper  = (t, r, i) => r["name"].upper()"#;
 
         let extensions = extract_extensions(table_str)
             .expect("Failed to extract extensions")
@@ -228,10 +228,10 @@ mod tests {
 
         assert_eq!(extensions.len(), 3);
         assert_eq!(extensions[0].0, "first");
-        assert_eq!(extensions[0].1.source(), "r[\"name\"]");
+        assert_eq!(extensions[0].1.source(), "(t, r, i) => r[\"name\"]");
         assert_eq!(extensions[1].0, "double");
         assert_eq!(extensions[2].0, "upper");
-        assert_eq!(extensions[2].1.source(), "r[\"name\"].upper()");
+        assert_eq!(extensions[2].1.source(), "(t, r, i) => r[\"name\"].upper()");
 
         // The extracted rules must be valid, callable JavaScript functions.
         for (_, rule) in &extensions {
