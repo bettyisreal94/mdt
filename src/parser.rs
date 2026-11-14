@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use boa_engine::Context;
 use crate::js::{str_to_fn, JsRule};
 
 /// Parse an extended markdown table string into a list of row maps.
@@ -102,6 +103,39 @@ pub fn extract_extensions(table_str: &str) -> Result<Vec<(String, JsRule)>, Stri
     }
 
     Ok(extensions)
+}
+
+/// Extend the parsed rows by applying every extension and computing the new
+/// columns. This is the core of the extended markdown table feature described
+/// in `tmp/extended-markdown-table/README.md`.
+///
+/// For each row in `inlet`, the returned map is a clone of that row with the
+/// result of every extension inserted under the extension's column name. The
+/// whole table (`inlet`) is passed to each rule so a rule can reference any row.
+///
+/// If applying any extension fails, the whole function returns an error.
+pub fn extend(
+    inlet: &[HashMap<String, String>],
+    extensions: &[(String, JsRule)],
+) -> Result<Vec<HashMap<String, String>>, String> {
+    let mut context = Context::default();
+    let mut result: Vec<HashMap<String, String>> =
+        Vec::with_capacity(inlet.len().max(extensions.len()));
+
+    for (index, row) in inlet.iter().enumerate() {
+        // Start from a copy of the original row so we keep all existing columns
+        // and only add the computed extension columns on top.
+        let mut extended = row.clone();
+        for (name, rule) in extensions {
+            let value = rule
+                .apply(&mut context, inlet, row, index)
+                .map_err(|e| format!("Extension '{name}' failed: {e}"))?;
+            extended.insert(name.clone(), value);
+        }
+        result.push(extended);
+    }
+
+    Ok(result)
 }
 
 fn is_separator(line: &str) -> bool {
