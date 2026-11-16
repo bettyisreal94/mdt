@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use boa_engine::Context;
 use crate::js::{str_to_fn, JsRule};
 
 /// Parse an extended markdown table string into a list of row maps.
@@ -102,6 +103,39 @@ pub fn extract_extensions(table_str: &str) -> Result<Vec<(String, JsRule)>, Stri
     }
 
     Ok(extensions)
+}
+
+/// Extend the parsed rows by applying every extension and computing the new
+/// columns. This is the core of the extended markdown table feature described
+/// in `tmp/extended-markdown-table/README.md`.
+///
+/// For each row in `inlet`, the returned map is a clone of that row with the
+/// result of every extension inserted under the extension's column name. The
+/// whole table (`inlet`) is passed to each rule so a rule can reference any row.
+///
+/// If applying any extension fails, the whole function returns an error.
+pub fn extend(
+    inlet: &[HashMap<String, String>],
+    extensions: &[(String, JsRule)],
+) -> Result<Vec<HashMap<String, String>>, String> {
+    let mut context = Context::default();
+    let mut result: Vec<HashMap<String, String>> =
+        Vec::with_capacity(inlet.len().max(extensions.len()));
+
+    for (index, row) in inlet.iter().enumerate() {
+        // Start from a copy of the original row so we keep all existing columns
+        // and only add the computed extension columns on top.
+        let mut extended = row.clone();
+        for (name, rule) in extensions {
+            let value = rule
+                .apply(&mut context, inlet, row, index)
+                .map_err(|e| format!("Extension '{name}' failed: {e}"))?;
+            extended.insert(name.clone(), value);
+        }
+        result.push(extended);
+    }
+
+    Ok(result)
 }
 
 fn is_separator(line: &str) -> bool {
@@ -334,5 +368,94 @@ mod tests {
 
         let expected = "| alpha | zebra |\n|---|---|\n| 2 | 1 |\n";
         assert_eq!(dump(&[row]), expected);
+    }
+
+    #[test]
+    fn test_extend_simple_extension() {
+        // A single working extension that upper-cases the name column.
+        let inlet: Vec<HashMap<String, String>> = vec![
+            {
+                let mut row = HashMap::new();
+                row.insert("name".to_string(), "Mira".to_string());
+                row.insert("age".to_string(), "27".to_string());
+                row
+            },
+            {
+                let mut row = HashMap::new();
+                row.insert("name".to_string(), "Pietro".to_string());
+                row.insert("age".to_string(), "24".to_string());
+                row
+            },
+        ];
+
+        let extensions = vec![
+            (
+                "upper".to_string(),
+                str_to_fn("(t, r, i) => r[\"name\"].toUpperCase()")
+                    .expect("Failed to parse extension"),
+            ),
+        ];
+
+        let result = extend(&inlet, &extensions).expect("extend should succeed");
+
+        assert_eq!(result.len(), 2);
+        // Original columns are preserved and the new column is added.
+        assert_eq!(result[0].get("name").unwrap(), "Mira");
+        assert_eq!(result[0].get("age").unwrap(), "27");
+        assert_eq!(result[0].get("upper").unwrap(), "MIRA");
+        assert_eq!(result[1].get("upper").unwrap(), "PIETRO");
+    }
+
+    #[test]
+    fn test_extend_no_extensions_is_identity() {
+        // With no extensions the output equals the input for every row.
+        let inlet: Vec<HashMap<String, String>> = vec![
+            {
+                let mut row = HashMap::new();
+                row.insert("name".to_string(), "Mira".to_string());
+                row.insert("age".to_string(), "27".to_string());
+                row
+            },
+            {
+                let mut row = HashMap::new();
+                row.insert("job".to_string(), "Singer".to_string());
+                row
+            },
+        ];
+
+        let extensions: &[(String, JsRule)] = &[];
+
+        let result = extend(&inlet, extensions).expect("extend should succeed");
+
+        assert_eq!(result.len(), inlet.len());
+        for (original, produced) in inlet.iter().zip(result.iter()) {
+            assert_eq!(original, produced, "row should be unchanged");
+        }
+    }
+
+    #[test]
+    fn test_extend_invalid_extension_fails() {
+        let inlet: Vec<HashMap<String, String>> = vec![
+            {
+                let mut row = HashMap::new();
+                row.insert("name".to_string(), "Mira".to_string());
+                row
+            },
+        ];
+
+        let extensions = vec![
+            (
+                "bad".to_string(),
+                // This parses fine, but fails at apply time: the property does
+                // not exist, so calling a method on it throws.
+                str_to_fn("(t, r, i) => r[\"nonexistent\"].method()")
+                    .expect("Failed to parse extension"),
+            ),
+        ];
+        let result = extend(&inlet, &extensions);
+        match result {
+            Err(err) => assert!(err.contains("failed"), "got: {err}"),
+            Ok(_) => panic!("expected an error"),
+        }
     }
 }
