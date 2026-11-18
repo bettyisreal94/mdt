@@ -138,6 +138,27 @@ pub fn extend(
     Ok(result)
 }
 
+/// Process a full extended markdown table string into a new table string.
+///
+/// This is the top-level entry point that ties the whole pipeline together:
+///
+/// 1. [`parse`] extracts the rows from the input string (extension lines are
+///    ignored here).
+/// 2. [`extract_extensions`] collects the extension definitions (name + rule)
+///    from the same string.
+/// 3. [`extend`] applies every extension to every row, producing the rows with
+///    the computed columns.
+/// 4. [`dump`] renders the extended rows back into a markdown table string.
+///
+/// If any of the four steps fails, the whole function returns an error and no
+/// partial output is produced.
+pub fn process(table_str: &str) -> Result<String, String> {
+    let rows = parse(table_str)?;
+    let extensions = extract_extensions(table_str)?;
+    let extended = extend(&rows, &extensions)?;
+    Ok(dump(&extended))
+}
+
 fn is_separator(line: &str) -> bool {
     let trimmed = line.trim().trim_start_matches('|').trim_end_matches('|').trim();
     if trimmed.is_empty() {
