@@ -74,8 +74,8 @@ fn main() -> ExitCode {
     };
 
     let output = match table_str {
-        Ok(table_str) => match crate::parser::parse(&table_str) {
-            Ok(rows) => Ok(crate::parser::dump(&rows)),
+        Ok(table_str) => match crate::parser::process(&table_str) {
+            Ok(output) => Ok(output),
             Err(err) => Err(err),
         },
         Err(err) => Err(err),
