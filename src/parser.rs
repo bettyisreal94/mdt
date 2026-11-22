@@ -128,7 +128,11 @@ pub fn extend(
         let mut extended = row.clone();
         for (name, rule) in extensions {
             let value = rule
-                .apply(&mut context, inlet, row, index)
+                // Use the rows computed so far (`result`) as the table, so that
+                // extensions which depend on previously computed values (e.g.
+                // recursive formulas like `t[i - 1]["total"]`) see the latest
+                // results instead of the original, un-extended `inlet`.
+                .apply(&mut context, &result, row, index)
                 .map_err(|e| format!("Extension '{name}' failed: {e}"))?;
             extended.insert(name.clone(), value);
         }
@@ -425,6 +429,27 @@ mod tests {
         assert_eq!(result[0].get("age").unwrap(), "27");
         assert_eq!(result[0].get("upper").unwrap(), "MIRA");
         assert_eq!(result[1].get("upper").unwrap(), "PIETRO");
+    }
+
+    #[test]
+    fn test_extend_recursive_extension_uses_previous_results() {
+        // An extension whose formula depends on previously computed cells
+        // (a recursive formula). Before the fix every row except the first
+        // produced `NaN` because the rule was given the original, un-extended
+        // `inlet` instead of the rows computed so far.
+        let table_str =
+            "| what    | how much |\n|---------|----------|\n| salary  |     4000 |\n| food    |     -200 |\n| rent    |     -800 |\n| candles |    -3600 |\n| utility |     -150 |\n: total = (t, r, i) => parseInt(r[\"how much\"]) + ((i === 0)? 0 : parseInt(t[i - 1][\"total\"]))";
+
+        let rows = parse(table_str).expect("Failed to parse table");
+        let extensions = extract_extensions(table_str).expect("Failed to extract extensions");
+        let extended = extend(&rows, &extensions).expect("extend should succeed");
+
+        assert_eq!(extended.len(), 5);
+        assert_eq!(extended[0].get("total").unwrap(), "4000");
+        assert_eq!(extended[1].get("total").unwrap(), "3800");
+        assert_eq!(extended[2].get("total").unwrap(), "3000");
+        assert_eq!(extended[3].get("total").unwrap(), "-600");
+        assert_eq!(extended[4].get("total").unwrap(), "-750");
     }
 
     #[test]
