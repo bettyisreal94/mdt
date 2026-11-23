@@ -243,8 +243,9 @@ pub fn dump(rows: &[HashMap<String, String>]) -> String {
         out.push_str(&format!("|{}|\n", sep_cells.join("|")));
     }
 
-    // Data rows. Each cell renders as ` value` padded so that the value plus
-    // its trailing padding is exactly `width` long, then ` |` terminates it.
+    // Data rows. Each cell renders as the value padded to the column width,
+    // then the cells are joined with ` | ` (like the header) and wrapped in
+    // `| ... |\n`.
     for row in rows {
         let cells: Vec<String> = names
             .iter()
@@ -252,10 +253,10 @@ pub fn dump(rows: &[HashMap<String, String>]) -> String {
             .map(|(i, name)| {
                 let value = row.get(name).map(String::as_str).unwrap_or(" ").to_string();
                 let padding = widths[i].saturating_sub(value.len());
-                format!("| {}{} |\n", value, " ".repeat(padding))
+                format!("{}{}", value, " ".repeat(padding))
             })
             .collect();
-        out.push_str(&cells.join(""));
+        out.push_str(&format!("| {} |\n", cells.join(" | ")));
     }
 
     out
@@ -374,7 +375,7 @@ mod tests {
         rows3.insert("age".to_string(), "18".to_string());
         rows3.insert("job".to_string(), "Singer".to_string());
 
-        let expected = "| age | job | name |\n|-----|-----------|------|\n| 27  | Superhero | Mira   |\n| 24   | Clown    | Pietro |\n| 18   | Singer   | Flora  |\n";
+        let expected = "| age | job | name |\n|--------|-----------|------|\n| Mira   | Superhero | 27   |\n| Pietro | Clown     | 24   |\n| Flora  | Singer    | 18   |\n";
 
         assert_eq!(dump(&[rows, rows2, rows3]), expected);
     }
@@ -410,7 +411,7 @@ mod tests {
         let mut other = HashMap::new();
         other.insert("job".to_string(), "Singer".to_string());
 
-        let expected = "| age | job | name |\n|-----|-----|------|\n| 27   |        | Mira |\n|      |     |       |\n";
+        let expected = "| age | job | name |\n|-----|--------|------|\n| 27   |        | Mira |\n|      | Singer |      |\n";
         assert_eq!(dump(&[row, other]), expected);
     }
 
@@ -420,7 +421,7 @@ mod tests {
         row.insert("zebra".to_string(), "1".to_string());
         row.insert("alpha".to_string(), "2".to_string());
 
-        let expected = "| alpha | zebra |\n|---|---|\n| 2 | 1 |\n";
+        let expected = "| alpha | zebra |\n|-------|-------|\n| 2     | 1     |\n";
         assert_eq!(dump(&[row]), expected);
     }
 
