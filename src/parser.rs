@@ -206,6 +206,15 @@ fn column_names(rows: &[HashMap<String, String>]) -> Vec<String> {
 ///
 /// The returned string is the header row, a `---` separator row and one row per
 /// input map, each terminated by a newline.
+///
+/// Every column is wide enough to hold its widest content (the longest header
+/// name or cell value) and each cell is padded accordingly, e.g.
+///
+/// ```txt
+/// | name     | age |
+/// |----------|-----|
+/// | mira     | 21  |
+/// ```
 pub fn dump(rows: &[HashMap<String, String>]) -> String {
     let names = column_names(rows);
 
@@ -216,17 +225,37 @@ pub fn dump(rows: &[HashMap<String, String>]) -> String {
         let header_cells: Vec<&str> = names.iter().map(String::as_str).collect();
         out.push_str(&format!("| {} |\n", header_cells.join(" | ")));
 
-        // Separator row: `|---|---|---|`
-        let sep_cells: Vec<&str> = std::iter::repeat("---").take(names.len()).collect();
+        // Compute the width of every column. The width is the largest string
+        // length found in the header name or any cell value.
+        let mut widths: Vec<usize> = names.iter().map(String::len).collect();
+        for row in rows {
+            for (name, value) in row {
+                let idx = names.iter().position(|n| n == name).unwrap();
+                if value.len() > widths[idx] {
+                    widths[idx] = value.len();
+                }
+            }
+        }
+
+        // Separator row: `|----------|-----|` (width + 2 dashes per column).
+        let sep_cells: Vec<String> =
+            widths.iter().map(|w| "-".repeat(w + 2)).collect();
         out.push_str(&format!("|{}|\n", sep_cells.join("|")));
     }
 
-    // Data rows
+    // Data rows. Each cell renders as ` value` padded so that the value plus
+    // its trailing padding is exactly `width` long, then ` |` terminates it.
     for row in rows {
-        let cells: Vec<String> = names.iter().map(|name| {
-            row.get(name).map(String::as_str).unwrap_or("").to_string()
-        }).collect();
-        out.push_str(&format!("| {} |\n", cells.join(" | ")));
+        let cells: Vec<String> = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let value = row.get(name).map(String::as_str).unwrap_or(" ").to_string();
+                let padding = widths[i].saturating_sub(value.len());
+                format!("| {}{} |\n", value, " ".repeat(padding))
+            })
+            .collect();
+        out.push_str(&cells.join(""));
     }
 
     out
@@ -345,7 +374,7 @@ mod tests {
         rows3.insert("age".to_string(), "18".to_string());
         rows3.insert("job".to_string(), "Singer".to_string());
 
-        let expected = "| age | job | name |\n|---|---|---|\n| 27 | Superhero | Mira |\n| 24 | Clown | Pietro |\n| 18 | Singer | Flora |\n";
+        let expected = "| age | job | name |\n|-----|-----------|------|\n| 27  | Superhero | Mira   |\n| 24   | Clown    | Pietro |\n| 18   | Singer   | Flora  |\n";
 
         assert_eq!(dump(&[rows, rows2, rows3]), expected);
     }
@@ -381,7 +410,7 @@ mod tests {
         let mut other = HashMap::new();
         other.insert("job".to_string(), "Singer".to_string());
 
-        let expected = "| age | job | name |\n|---|---|---|\n| 27 |  | Mira |\n|  | Singer |  |\n";
+        let expected = "| age | job | name |\n|-----|-----|------|\n| 27   |        | Mira |\n|      |     |       |\n";
         assert_eq!(dump(&[row, other]), expected);
     }
 
