@@ -1,5 +1,5 @@
 This repository contains a Rust project for a command line application that handles extended
-Markdown tables as defined `./tmp/extended-markdown-tables/README.md`.
+Markdown tables as defined `./tmp/extended-markdown-table/README.md`.
 
 The current task is to fix a bug that exists throughout the flow on the `process` function in
 `./src/parser.rs`. Currently, the columns in the output table are sorted. However, I would like
